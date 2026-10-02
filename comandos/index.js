@@ -1,40 +1,79 @@
-// ============================================================
-// EXPORTA TODOS OS COMANDOS
-// ============================================================
-const fs = require("fs");
-const path = require("path");
+// comandos/index.js
+const fs = require('fs');
+const path = require('path');
 
 const comandos = new Map();
 
-// Lê todas as pastas dentro de "comandos"
-const pastas = fs.readdirSync(__dirname);
+// ============================================================
+// 🔹 CARREGAR TODOS OS COMANDOS
+// ============================================================
 
-for (const pasta of pastas) {
-    if (pasta === "index.js") continue;
+function carregarComandos() {
+    const pastas = ['admin', 'diversao', 'economia', 'ia', 'midia', 'rpg', 'uteis','utils'];
     
-    const caminho = path.join(__dirname, pasta);
-    if (!fs.statSync(caminho).isDirectory()) continue;
+    let totalComandos = 0;
+    let totalNomes = 0;
     
-    // Lê todos os arquivos .js da pasta
-    const arquivos = fs.readdirSync(caminho).filter(f => f.endsWith(".js"));
-    
-    for (const arquivo of arquivos) {
-        const comando = require(path.join(caminho, arquivo));
-        if (comando.nome) {
-            comandos.set(comando.nome, comando.executar);
-            console.log(`✅ Comando carregado: ${comando.nome}`);
+    for (const pasta of pastas) {
+        const pastaPath = path.join(__dirname, pasta);
+        if (!fs.existsSync(pastaPath)) continue;
+        
+        const arquivos = fs.readdirSync(pastaPath).filter(f => f.endsWith('.js'));
+        
+        for (const arquivo of arquivos) {
+            try {
+                const caminho = path.join(pastaPath, arquivo);
+                const cmd = require(caminho);
+                
+                if (!cmd || !cmd.executar) continue;
+                
+                // 🔥 PEGA A LISTA DE NOMES
+                // Aceita "nomes" (novo) ou "nome" + "alias" (antigo) pra compatibilidade
+                let listaNomes = [];
+                
+                if (cmd.nomes && Array.isArray(cmd.nomes)) {
+                    // 🔥 NOVO FORMATO: { nomes: ["pagar", "pay"], executar }
+                    listaNomes = cmd.nomes;
+                } else if (cmd.nome) {
+                    // 🔹 FORMATO ANTIGO: { nome: "pagar", alias: [...], executar }
+                    listaNomes = [cmd.nome];
+                    if (cmd.alias && Array.isArray(cmd.alias)) {
+                        listaNomes = listaNomes.concat(cmd.alias);
+                    }
+                }
+                
+                if (listaNomes.length === 0) {
+                    console.log(`⚠️ Comando sem nome: ${arquivo}`);
+                    continue;
+                }
+                
+                // 🔥 REGISTRA TODOS OS NOMES
+                const nomePrincipal = listaNomes[0];
+                
+                for (const nome of listaNomes) {
+                    comandos.set(nome.toLowerCase(), {
+                        executar: cmd.executar,
+                        nomePrincipal: nomePrincipal,
+                        arquivo: arquivo
+                    });
+                    totalNomes++;
+                }
+                
+                totalComandos++;
+                
+            } catch (err) {
+                console.error(`❌ Erro ao carregar ${arquivo}:`, err.message);
+            }
         }
     }
+    
+    console.log('╔═══════════════════════════════════════════╗');
+    console.log('║   📦 COMANDOS CARREGADOS!                 ║');
+    console.log(`║   ✅ Comandos: ${String(totalComandos).padEnd(28)}║`);
+    console.log(`║   🔤 Nomes totais: ${String(totalNomes).padEnd(24)}║`);
+    console.log('╚═══════════════════════════════════════════╝');
 }
 
-// Também carrega comandos direto na pasta comandos/
-const arquivosRaiz = fs.readdirSync(__dirname).filter(f => f.endsWith(".js") && f !== "index.js");
-for (const arquivo of arquivosRaiz) {
-    const comando = require(path.join(__dirname, arquivo));
-    if (comando.nome) {
-        comandos.set(comando.nome, comando.executar);
-        console.log(`✅ Comando carregado: ${comando.nome}`);
-    }
-}
+carregarComandos();
 
 module.exports = comandos;

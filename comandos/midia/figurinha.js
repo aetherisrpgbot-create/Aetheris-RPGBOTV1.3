@@ -4,7 +4,8 @@ const { bufferToSticker } = require("../../utils/helpers");
 const pino = require("pino");
 
 module.exports = {
-    nome: "figurinha",
+    nomes: ["figurinha","s","fig","stiker","sticker","st"],
+
     executar: async (sock, msg, args, remetenteId, remoteJid) => {
         try {
             const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;

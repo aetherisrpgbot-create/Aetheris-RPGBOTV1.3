@@ -1,50 +1,45 @@
-// !perfil - Mostra perfil completo
-const { lerJogadores } = require("../../servicos/banco");
-const { getAtributosCombate } = require("../../utils/helpers");
+// comandos/rpg/perfil.js
+const { Jogador } = require('../../servicos/jogador');
+const { getAreaNome } = require('../../dados/biomas/eldoria');
 
 module.exports = {
     nome: "perfil",
     executar: async (sock, msg, args, remetenteId, remoteJid) => {
-        // 🔥 LÊ DIRETO DO ARQUIVO
-        const dados = lerJogadores();
-        const jogador = dados[remetenteId];
-        
-        if (!jogador) {
-            return sock.sendMessage(remoteJid, {
-                text: "❌ Você ainda não tem um perfil.\nUse !menu para começar!"
+        try {
+            const jogador = new Jogador(remetenteId);
+            await jogador.carregar();
+
+            const d = jogador.dados;
+            const areaNome = getAreaNome(d.area || 'acampamento');
+            const xpPercent = Math.floor((d.xp / d.xp_proximo) * 100);
+            const totalItens = jogador.inventario.reduce((acc, i) => acc + i.quantidade, 0);
+
+            let texto = `╭━━━ 👤 *PERFIL* ━━━╮\n\n`;
+            texto += `👤 **${d.nome}**\n`;
+            texto += `🏷️ Classe: ${d.classe || 'Aventureiro'}\n`;
+            texto += `⭐ Nível: ${d.nivel}\n`;
+            texto += `📊 XP: ${d.xp}/${d.xp_proximo} (${xpPercent}%)\n`;
+            texto += `❤️ Vida: ${d.vida}/${d.vida_max}\n`;
+            texto += `💙 Mana: ${d.mana}/${d.mana_max}\n`;
+            texto += `⚡ Stamina: ${d.stamina}/${d.stamina_max}\n`;
+            texto += `💰 Ouro: ${d.ouro}\n`;
+            texto += `🏦 Banco: ${d.banco}\n`;
+            texto += `📦 Itens: ${totalItens}\n\n`;
+            texto += `📍 Localização: ${areaNome}\n`;
+            texto += `🌍 Bioma: ${d.bioma || 'eldoria'}\n\n`;
+            texto += `⚔️ Poder: ${d.poder}\n`;
+            texto += `🛡️ Defesa: ${d.defesa}\n`;
+            texto += `💀 Crítico: ${d.critico}%\n`;
+            texto += `💨 Esquiva: ${d.esquiva}%\n`;
+            texto += `━━━━━━━━━━━━━━━━━━━━━`;
+
+            await sock.sendMessage(remoteJid, { text: texto });
+
+        } catch (err) {
+            console.error("❌ ERRO perfil:", err);
+            await sock.sendMessage(remoteJid, {
+                text: `❌ Erro ao carregar perfil: ${err.message}`
             });
         }
-        
-        const stats = getAtributosCombate(jogador);
-
-        const perfil = `
-╔══════════════════╗
-      👤 PERFIL
-╚══════════════════╝
-
-🏷️ Nome: ${jogador.nome || "Jogador"}
-
-🏷️ Classe: ${jogador.classe || "Sem Classe"}
-
-━━━━━━━━━━━━━━━━
-📊 *ATRIBUTOS:*
-❤️ Vida: ${jogador.vida || 100}/${jogador.vidaMax || 100}
-⚔️ Poder: ${stats.poder || 10}
-🛡️ Defesa: ${stats.defesa || 5}
-🎯 Crítico: ${stats.critico || 5}%
-💨 Esquiva: ${stats.esquiva || 3}%
-
-━━━━━━━━━━━━━━━━
-⭐ Nível: ${jogador.nivel || 1}
-✨ XP: ${jogador.xp || 0}/${(jogador.nivel || 1) * 100}
-
-💰 Carteira: R$${jogador.saldo || 0}
-🏦 Banco: R$${jogador.banco || 0}
-
-⚡ Stamina: ${jogador.stamina || 100}/${jogador.maxStamina || 100}
-😵 Cansaço: ${jogador.fatigue || 0}%
-`;
-
-        await sock.sendMessage(remoteJid, { text: perfil });
     }
 };

@@ -395,74 +395,78 @@ function getTexto(msg) {
     );
 }
 
-// ========== ATRIBUTOS DE COMBATE ==========
-function getAtributosCombate(jogador) {
-    let ITENS = {};
-    try {
-        ITENS = require("../dados/itens");
-    } catch (e) {
-        console.log("⚠️ Arquivo de itens não encontrado");
-    }
-    
-    let poder = jogador.poder || 10;
-    let defesa = jogador.defesa || 5;
-    let critico = jogador.critico || 5;
-    let esquiva = jogador.esquiva || 3;
-    let vidaMax = jogador.vidaMax || 100;
-    let manaMax = jogador.manaMax || 100;
+// ========== CRIAR FIGURINHA COM LEGENDA (IMAGEM + TEXTO EMBAIXO) ==========
 
-    const equipados = [
-        jogador.arma,
-        jogador.armadura,
-        jogador.acessorio
-    ];
-
-    for (const itemId of equipados) {
-        if (!itemId) continue;
-        const item = ITENS[itemId];
-        if (!item) continue;
-        poder += item.ataque || 0;
-        defesa += item.defesa || 0;
-        critico += item.critico || 0;
-        esquiva += item.esquiva || 0;
-        vidaMax += item.vidaMax || 0;
-        manaMax += item.manaMax || 0;
-    }
-
-    return { poder, defesa, critico, esquiva, vidaMax, manaMax };
+function execAsync(cmd) {
+    return new Promise((resolve) => {  // ← NÃO USA REJECT!
+        exec(cmd, (err, stdout, stderr) => {
+            // 🔥 IGNORA QUALQUER ERRO DO FFMPEG
+            resolve({ stdout, stderr, error: err });
+        });
+    });
 }
 
-// ========== CRIAR FIGURINHA COM LEGENDA (IMAGEM + TEXTO EMBAIXO) ==========
 async function criarStickerLegenda(buffer, texto, cor = "black") {
     const tempDir = os.tmpdir();
-    const inputPath = path.join(tempDir, `input_${Date.now()}.jpg`);
+    const inputPath = path.join(tempDir, `input_${Date.now()}.webp`);
+    const framePath = path.join(tempDir, `frame_${Date.now()}.png`);
     const outputPath = path.join(tempDir, `output_${Date.now()}.webp`);
 
     try {
         fs.writeFileSync(inputPath, buffer);
 
-        // ===== QUEBRA O TEXTO EM LINHAS =====
-        function quebrarTexto(texto, limite = 25) {
+        // 🔥 EXTRAI FRAME (SILENCIOSO - NÃO MOSTRA NADA)
+        let imagePath = inputPath;
+        try {
+            await execAsync(`ffmpeg -y -loglevel quiet -hide_banner -i "${inputPath}" -vframes 1 -f image2 -vcodec png "${framePath}"`);
+            if (fs.existsSync(framePath) && fs.statSync(framePath).size > 100) {
+                imagePath = framePath;
+            }
+        } catch (e) {
+            // SILENCIOSO — NÃO FAZ NADA
+        }
+
+        // ============================================================
+        // 🔥 QUEBRA O TEXTO
+        // ============================================================
+        function quebrarTexto(texto, limite = 22) {
             const palavras = texto.split(" ");
             let linhas = [];
             let linhaAtual = "";
-
             for (const palavra of palavras) {
-                if ((linhaAtual + " " + palavra).length > limite) {
-                    linhas.push(linhaAtual.trim());
+                const teste = linhaAtual + (linhaAtual ? " " : "") + palavra;
+                if (teste.length > limite) {
+                    if (linhaAtual) linhas.push(linhaAtual.trim());
                     linhaAtual = palavra + " ";
                 } else {
                     linhaAtual += palavra + " ";
                 }
             }
             if (linhaAtual.trim()) linhas.push(linhaAtual.trim());
-            return linhas;
+            const resultado = [];
+            for (const linha of linhas) {
+                if (linha.length > limite) {
+                    let quebrada = '';
+                    for (let i = 0; i < linha.length; i++) {
+                        quebrada += linha[i];
+                        if (quebrada.length >= limite) {
+                            resultado.push(quebrada);
+                            quebrada = '';
+                        }
+                    }
+                    if (quebrada) resultado.push(quebrada);
+                } else {
+                    resultado.push(linha);
+                }
+            }
+            return resultado.length > 0 ? resultado : ['...'];
         }
 
-        const linhas = quebrarTexto(texto, 25);
+        const linhas = quebrarTexto(texto, 22);
         const textoQuebrado = linhas.join("\\n");
+        const numLinhas = linhas.length;
 
-        // ===== ESCAPA O TEXTO =====
+        // Escapa o texto
         const textoEscapado = textoQuebrado
             .replace(/\\/g, '\\\\')
             .replace(/"/g, '\\"')
@@ -476,80 +480,75 @@ async function criarStickerLegenda(buffer, texto, cor = "black") {
             .replace(/\{/g, "\\{")
             .replace(/\}/g, "\\}")
             .replace(/\$/g, "\\$")
-            .replace(/`/g, "\\`");
+            .replace(/`/g, "\\`")
+            .replace(/!/g, "\\!");
 
-        // ===== TAMANHO DA FONTE =====
+        // Tamanho da fonte
         let fontSize = 32;
-        const numLinhas = linhas.length;
-        if (numLinhas > 4) fontSize = 20;
+        if (numLinhas > 5) fontSize = 18;
+        else if (numLinhas > 4) fontSize = 20;
         else if (numLinhas > 3) fontSize = 22;
         else if (numLinhas > 2) fontSize = 26;
         else if (numLinhas > 1) fontSize = 30;
-        else fontSize = 36;
 
-        // ===== CORES DISPONÍVEIS =====
+        // Cores
         const cores = {
-            preto: "black",
-            branco: "white",
-            vermelho: "red",
-            azul: "blue",
-            verde: "green",
-            amarelo: "yellow",
-            roxo: "purple",
-            rosa: "pink",
-            laranja: "orange",
-            cinza: "gray",
-            marrom: "brown",
-            dourado: "gold"
+            preto: "black", branco: "white", vermelho: "red",
+            azul: "blue", verde: "green", amarelo: "yellow",
+            roxo: "purple", rosa: "pink", laranja: "orange",
+            cinza: "gray", marrom: "brown", dourado: "gold",
+            ciano: "cyan", magenta: "magenta"
         };
-
         const corFinal = cores[cor.toLowerCase()] || "black";
+        const sombra = corFinal === 'white' ? 'black' : 'white';
+        const alturaLegenda = Math.max(70, numLinhas * 38 + 30);
 
-        // ===== ALTURA DA LEGENDA =====
-        const alturaLegenda = Math.max(80, numLinhas * 35 + 20);
+        // 🔥 COMANDO FFMPEG SILENCIOSO (SUPRIME TUDO)
+        const cmd = `ffmpeg -y -loglevel quiet -hide_banner -i "${imagePath}" ` +
+            `-vf "scale=512:512:flags=lanczos, ` +
+            `pad=512:${512 + alturaLegenda}:0:0:white, ` +
+            `drawtext=text='${textoEscapado}':fontcolor=${sombra}:fontsize=${fontSize}:line_spacing=25:x=(w-text_w)/2+2:y=(h-text_h)-${alturaLegenda - 30}+2, ` +
+            `drawtext=text='${textoEscapado}':fontcolor=${corFinal}:fontsize=${fontSize}:line_spacing=25:x=(w-text_w)/2:y=(h-text_h)-${alturaLegenda - 30}" ` +
+            `-vcodec libwebp -lossless 0 -compression_level 6 -q:v 60 -loop 0 -preset picture -an "${outputPath}"`;
 
-        // ===== CRIA A IMAGEM COM LEGENDA =====
-        // 1. Redimensiona a imagem para 512x512
-        // 2. Adiciona um fundo branco embaixo
-        // 3. Coloca o texto centralizado na parte branca
-        const cmd = `ffmpeg -y -i "${inputPath}" ` +
-                    `-vf "scale=512:512:flags=lanczos, ` +
-                    `pad=512:${512 + alturaLegenda}:0:0:white, ` +
-                    `drawtext=text='${textoEscapado}':fontcolor=${corFinal}:fontsize=${fontSize}:line_spacing=20:x=(w-text_w)/2:y=(h-text_h)-${alturaLegenda/2 - 10}" ` +
-                    `-vcodec libwebp -lossless 0 -compression_level 6 -q:v 60 -loop 0 -preset picture -an -vsync 0 -t 6 "${outputPath}"`;
+        // 🔥 EXECUTA E IGNORA O ERRO
+        await execAsync(cmd);
 
-        console.log(`🎨 Gerando figurinha com legenda: "${texto}" | Cor: ${corFinal} | Fonte: ${fontSize} | Linhas: ${numLinhas}`);
+        // 🔥 SE NÃO GEROU, TENTA FALLBACK (SILENCIOSO)
+        if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
+            const fallback = `ffmpeg -y -loglevel quiet -hide_banner -i "${imagePath}" ` +
+                `-vf "scale=512:512:flags=lanczos, ` +
+                `pad=512:${512 + alturaLegenda}:0:0:white, ` +
+                `drawtext=text='${textoEscapado}':fontcolor=${corFinal}:fontsize=${fontSize}:line_spacing=25:x=(w-text_w)/2:y=(h-text_h)-${alturaLegenda - 30}" ` +
+                `-vcodec libwebp -lossless 0 -compression_level 6 -q:v 60 -loop 0 -preset picture -an "${outputPath}"`;
+            await execAsync(fallback);
+        }
 
-        await new Promise((resolve, reject) => {
-            exec(cmd, (err) => {
-                if (err) {
-                    // FALLBACK: SEM FONTE
-                    const cmdFallback = `ffmpeg -y -i "${inputPath}" ` +
-                                       `-vf "scale=512:512:flags=lanczos, ` +
-                                       `pad=512:${512 + alturaLegenda}:0:0:white, ` +
-                                       `drawtext=text='${textoEscapado}':fontcolor=${corFinal}:fontsize=${fontSize}:line_spacing=20:x=(w-text_w)/2:y=(h-text_h)-${alturaLegenda/2 - 10}" ` +
-                                       `-vcodec libwebp -lossless 0 -compression_level 6 -q:v 60 -loop 0 -preset picture -an -vsync 0 -t 6 "${outputPath}"`;
-                    exec(cmdFallback, (err2) => {
-                        if (err2) reject(err2);
-                        else resolve();
-                    });
-                } else {
-                    resolve();
-                }
-            });
-        });
+        // 🔥 SE AINDA NÃO GEROU, USA IMAGEM ORIGINAL SEM LEGENDA
+        if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
+            const simple = `ffmpeg -y -loglevel quiet -hide_banner -i "${imagePath}" -vf "scale=512:512:flags=lanczos" -vcodec libwebp -lossless 0 -compression_level 6 -q:v 60 -loop 0 -preset picture -an "${outputPath}"`;
+            await execAsync(simple);
+        }
 
-        if (!fs.existsSync(outputPath)) {
+        if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
             throw new Error("Figurinha não gerada");
         }
 
         return fs.readFileSync(outputPath);
 
+    } catch (err) {
+        // 🔥 NUNCA MOSTRA O ERRO DO FFMPEG
+        console.error("❌ Erro na função criarStickerLegenda:", err.message || "Erro desconhecido");
+        throw new Error("Erro ao processar a imagem. Tente com outra imagem.");
     } finally {
-        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        try {
+            if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+            if (fs.existsSync(framePath)) fs.unlinkSync(framePath);
+            if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        } catch (e) {}
     }
 }
+
 
 //=========EXPORTAÇÕES
 
@@ -559,7 +558,6 @@ module.exports = {
     criarConverterColorido,
     normalizarTexto,
     getTexto,
-    getAtributosCombate,
     limparTexto,
     criarStickerLegenda,
     adicionarExif,

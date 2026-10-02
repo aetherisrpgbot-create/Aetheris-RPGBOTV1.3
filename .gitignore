@@ -1,6 +1,72 @@
-auth_info/
-.env
-database/*.db
+# Dependências
 node_modules/
+
+# WhatsApp / Baileys — NÃO enviar para o GitHub
+auth_info/
+auth_info_baileys/
+*.session
+creds.json
+app-state-sync-key-*
+pre-key-*
+sender-key-*
+session-*
+
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Arquivos temporários
 temp/
+tmp/
+logs/
 *.log
+
+# Backups locais
+*.zip
+backups/
+backup/
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs do npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Cookies
+cookies.txt
+
+# Dados privados / gerados em execução
+database/ia_conhecimento.db
+database/rpgbot.db
+database/perfis_avancados.json
+database/logs_comandos.json
+database/estatisticas.json
+database/mutados.json
+database/nomes_cache.json
+database/cache_inventario/hashes.json
+database/cache_inventario/*.png
+
+# Sessão do WhatsApp
+auth_info/
+
+# Variáveis de ambiente
+.env
+.env.*
+
+# Cookies
+cookies.txt
+
+# Python
+__pycache__/
+*.pyc

@@ -1,567 +1,353 @@
-// ============================================================
-// SERVIÇO DE IA - A CRÔNICA DE AETHERIS (COM MEMÓRIA)
-// ============================================================
-require("dotenv").config();
+// servicos/ia.js - IA SEM THINK (USANDO GPT-OSS-120B)
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
-const OpenAI = require("openai");
-const { salvarConversaIA, getConversasIA } = require("./database");
+const Groq = require('groq-sdk');
+const { exec } = require('child_process');
 
-const openai = new OpenAI({
-    baseURL: "https://api.groq.com/openai/v1",
-    apiKey: process.env.GROQ_API_KEY
-});
+// 🔥 VERIFICA A CHAVE
+if (!process.env.GROQ_API_KEY) {
+    console.error('❌ GROQ_API_KEY não encontrada no .env');
+    process.exit(1);
+}
 
-// ===== CONFIGURAÇÃO =====
-const generationConfig = {
-    temperature: 1.0,
-    max_tokens: 600,
-    top_p: 0.95,
-};
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const SCRIPT_PATH = path.join(__dirname, '../ia_brain.py');
 
 // ============================================================
-// 📜 A CRÔNICA DE AETHERIS (LORE COMPLETA)
+// 🔥 FUNÇÕES DO BANCO (VIA PYTHON)
 // ============================================================
+
+function executarPython(modo, ...args) {
+    return new Promise((resolve, reject) => {
+        const argsEscapados = args.map(a => `"${String(a).replace(/"/g, '\\"')}"`).join(' ');
+        const cmd = `python3 "${SCRIPT_PATH}" ${modo} ${argsEscapados}`;
+
+        exec(cmd, { maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            try {
+                const data = JSON.parse(stdout);
+                resolve(data);
+            } catch (e) {
+                reject(new Error(`Erro ao parsear JSON: ${stdout}`));
+            }
+        });
+    });
+}
+
+async function buscarConhecimento(usuarioId, personagem, pergunta) {
+    try {
+        const result = await executarPython('buscar', usuarioId, personagem, pergunta);
+        return result.resposta || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function salvarConhecimento(usuarioId, personagem, pergunta, resposta) {
+    try {
+        await executarPython('salvar', usuarioId, personagem, pergunta, resposta);
+    } catch (e) {}
+}
+
+async function salvarHistorico(usuarioId, personagem, pergunta, resposta, contexto = '') {
+    try {
+        await executarPython('historico', usuarioId, personagem, pergunta, resposta, contexto);
+    } catch (e) {}
+}
+
+async function buscarHistorico(usuarioId, personagem, limite = 5) {
+    try {
+        const result = await executarPython('historico_buscar', usuarioId, personagem, limite);
+        return result.historico || [];
+    } catch (e) {
+        return [];
+    }
+}
+
+// ============================================================
+// 🔥 LORE DE AETHERIS (RESUMIDA)
+// ============================================================
+
 const LORE_AETHERIS = `
-🌍 *A CRÔNICA DE AETHERIS*
-
-📜 *PRÓLOGO*
-
-Muito antes do primeiro reino ser erguido, antes mesmo da humanidade aprender a dominar o fogo e o aço, existia apenas um continente conhecido como Aetheris.
-
-Seu equilíbrio era mantido por uma fonte de poder criada pelos próprios deuses: o Coração do Mundo.
-
-O Coração não era apenas uma relíquia.
-
-Ele controlava o fluxo da vida, da magia, das estações, dos mares e do destino de todas as criaturas. Enquanto sua energia permanecia intacta, homens, elfos, anões e outras raças viveram durante séculos em relativa paz.
-
-Mas nenhuma era de paz dura para sempre.
-
----
-
-💀 *A GRANDE RUPTURA*
-
-Nas profundezas do vazio surgiu uma entidade cujo verdadeiro nome foi apagado da história.
-
-Hoje ela é conhecida apenas como O Devorador.
-
-Sua ambição era simples: consumir toda a energia do Coração do Mundo e remodelar Aetheris segundo sua própria vontade.
-
-A guerra durou décadas.
-
-Reinos inteiros desapareceram.
-
-Montanhas foram partidas ao meio.
-
-Oceanos engoliram cidades.
-
-Milhões morreram.
-
-Quando perceberam que a vitória era impossível, os deuses e os maiores heróis reuniram toda sua força em um único golpe.
-
-O Devorador foi derrotado.
-
-Mas havia um preço.
-
-O Coração do Mundo se partiu em centenas de fragmentos espalhados pelos quatro cantos do continente.
-
-Naquele instante, a energia que mantinha a ordem desapareceu.
-
-A magia tornou-se instável.
-
-Animais comuns transformaram-se em monstros.
-
-Florestas ganharam vida.
-
-Mortos passaram a caminhar.
-
-Ruínas esquecidas despertaram depois de milhares de anos.
-
-A paz chegou ao fim.
-
-Começava a Era do Caos.
-
----
-
-⚔️ *O SURGIMENTO DA ORDEM*
-
-Séculos depois, um pequeno grupo de guerreiros, magos, arqueiros e assassinos encontrou um dos Fragmentos do Coração.
-
-Ao entrar em contato com sua energia, eles compreenderam que o mundo jamais voltaria ao normal enquanto todos os fragmentos não fossem recuperados.
-
-Nascia então a Ordem do RPGBOT.
-
-Seu objetivo era reunir aventureiros de todos os reinos, treiná-los e enviá-los em expedições cada vez mais perigosas para recuperar os fragmentos perdidos.
-
-Desde então, qualquer pessoa suficientemente corajosa pode ingressar na Ordem.
-
-Mas sobreviver é outra história.
-
----
-
-🎯 *OS AVENTUREIROS*
-
-Todo membro da Ordem começa exatamente igual.
-
-Sem fama.
-
-Sem ouro.
-
-Sem equipamentos lendários.
-
-Sem poder.
-
-Apenas com coragem.
-
-Cada monstro derrotado concede experiência.
-
-Cada missão concluída fortalece o aventureiro.
-
-Cada batalha ensina algo novo.
-
-Aqueles que persistem tornam-se verdadeiras lendas.
-
----
-
-⚔️ *AS CLASSES*
-
-⚔️ Guerreiro - Especialista em combate corpo a corpo. Carrega armaduras pesadas e enfrenta qualquer inimigo de frente. Sua determinação é capaz de proteger aliados mesmo diante dos monstros mais terríveis.
-
-🏹 Arqueiro - Mestre da precisão. Acerta alvos a grandes distâncias antes mesmo que percebam sua presença. Sua velocidade faz dele um dos exploradores mais valiosos da Ordem.
-
-🔮 Mago - Estudioso das antigas energias do Coração. Controla elementos, manipula magia e utiliza feitiços capazes de alterar completamente o rumo de uma batalha. Seu conhecimento vale mais do que ouro.
-
-🗡️ Assassino - Treinado para agir nas sombras. Ataca rapidamente e desaparece antes que o inimigo consiga reagir. É silencioso, mortal e extremamente difícil de enfrentar.
-
----
-
-🏰 *O MUNDO ATUAL*
-
-Hoje, Aetheris é dividido entre inúmeros reinos.
-
-Alguns prosperam.
-
-Outros vivem cercados por monstros.
-
-Ruínas escondem armas lendárias.
-
-Masmorras guardam criaturas ancestrais.
-
-Dragões dormem sobre montanhas de ouro.
-
-Necromantes buscam reviver o poder do Devorador.
-
-Mercadores viajam entre cidades vendendo equipamentos raros.
-
-Guildas disputam influência.
-
-Bandidos saqueiam caravanas.
-
-E dizem que existem portais capazes de levar aventureiros para regiões que nenhum mapa registra.
-
----
-
-🔮 *OS FRAGMENTOS*
-
-Os Fragmentos do Coração ainda estão espalhados pelo continente.
-
-Cada um concede um poder extraordinário.
-
-Alguns fortalecem quem os possui.
-
-Outros enlouquecem seus portadores.
-
-Há também aqueles protegidos por criaturas tão antigas que sequer possuem um nome.
-
-Recuperá-los significa aproximar o mundo da paz.
-
-Mas também desperta forças que preferiam permanecer adormecidas.
-
----
-
-📜 *A PROFECIA*
-
-Uma antiga profecia afirma:
-
-"Quando o último fragmento for encontrado, nascerá aquele que decidirá o destino de Aetheris. O mundo será restaurado... ou consumido para sempre."
-
-Ninguém sabe quem será esse escolhido.
-
-Talvez seja um rei.
-
-Talvez um guerreiro lendário.
-
-Ou talvez...
-
-Um simples aventureiro que começou sem nada.
-
----
-
-✨ *SUA JORNADA*
-
-Você acaba de ingressar na Ordem do RPGBOT.
-
-Seu nome ainda não aparece em nenhum livro.
-
-Você não possui riquezas.
-
-Seu equipamento é simples.
-
-Sua fama é inexistente.
-
-Mas toda lenda começou exatamente assim.
-
-Treine.
-
-Lute.
-
-Explore.
-
-Conquiste.
-
-Enriqueça.
-
-Sobreviva.
-
-O futuro de Aetheris pode depender das suas escolhas.
-
-Bem-vindo ao RPGBOT. Sua história começa agora.
+🌍 AETHERIS - O mundo onde sua aventura começa.
+O equilíbrio do mundo era mantido pelo Coração do Mundo.
+O Devorador surgiu e quebrou o Coração em fragmentos.
+A Ordem do RPGBOT foi criada para recuperar os fragmentos.
+Você é um aventureiro da Ordem. Sua jornada começa agora.
 `;
 
-// ========== TUTORIAL DO BOT ==========
+// ============================================================
+// 🔥 TUTORIAL DO BOT
+// ============================================================
+
 const TUTORIAL_RPGBOT = `
-📚 *GUIA DO AVENTUREIRO - RPGBOT*
-
-⚔️ *COMBATE*
-!treino <dificuldade> - Inicia uma batalha (facil/normal/dificil/chefe)
-!atacar - Ataca o inimigo
-!golpe - Golpe especial (dano x2)
-!combo - 3 ataques seguidos
-!usarskill <id> - Usa habilidade da sua classe
-!defender - Ativa defesa por 10s (reduz dano)
-!contra-atacar - Contra-ataca após defender
-!analisar - Mostra fraquezas do inimigo
-!rendicao - Se rende (perde 5% XP)
-!fugir - Foge do combate
-
-📊 *STATUS*
-!perfil - Ver status completo
-!xp - Ver XP e progresso
-!dano - Ver dano de ataques
-!defesa - Ver defesa total
-!critico - Ver chance de crítico
-!esquiva - Ver chance de esquiva
-!ranking - Ranking global
-!rankrico - Ranking de riqueza
-
-🏰 *DUNGEON*
-!dungeon - Menu da dungeon
-!dungeon listar - Ver dungeons disponíveis
-!dungeon entrar <id> - Entrar na dungeon
-!dungeon status - Ver progresso
-!dungeon sair - Sair da dungeon
-!datacar - Atacar na dungeon
-!dgolpe - Golpe na dungeon
-!dcombo - Combo na dungeon
-!dskill <id> - Skill na dungeon
-!responder <resposta> - Responder puzzle
-
-🎯 *JOGADOR*
-!classe - Escolher classe (guerreiro/mago/arqueiro/assassino)
-!resetclasse - Resetar classe
-!skills - Ver habilidades da classe
-!inventario - Ver itens
-!loja - Loja do jogo
-!comprar <id> - Comprar item
-!equipar <id> - Equipar item
-!desequipar - Desequipar item
-!equipamentos - Ver equipados
-!usar <id> - Usar consumível
-
-💰 *ECONOMIA*
-!trabalhar - Ganhar dinheiro
-!descansar - Recuperar stamina
-!acordar - Acordar antes do descanso
-!saldo - Ver saldo
-!depositar <valor> - Depositar no banco
-!sacar <valor> - Sacar do banco
-!roubar @user - Roubar alguém
-!seguranca - Contratar segurança
-
-🎮 *DIVERSÃO*
-!dado - Rolar dado
-!moeda - Cara ou coroa
-!8ball - Pergunta ao destino
-!sorteio - Número aleatório
-!pergunta - Quiz de conhecimento
-!resposta - Responder quiz
-!marcar - Mencionar todos
-
-🎨 *MÍDIA*
-!figurinha - Criar figurinha
-!foto - Figurinha em imagem
-!converter <cor> <texto> - Texto em figurinha
-!stickertexto - Figurinha com texto
-!stickertexto2 - Figurinha com legenda
-!play <música> - Baixar música
-!rename <nome> - Renomear figurinha
-!figurinhanome <nome> - Criar figurinha com nome
-
-🧙 *SÁBIOS DE AETHERIS*
-!oraculo <pergunta> - Oráculo vê o futuro
-!armeiro <pergunta> - Dicas de armas e combate
-!clerigo <pergunta> - Poções e teologia
-!mestre <pergunta> - Ciência e história
-!personagens - Ver todos os sábios
-
-👑 *ADMIN*
-!ban @user - Banir
-!promover @user - Promover a admin
-!rebaixar @user - Rebaixar admin
-!mute @user - Mutar
-!unmute @user - Desmutar
-!adv @user - Advertir
-!fechar - Fechar o grupo
-!abrir - Abrir o grupo
-!antiviewonce - Ativar/desativar proteção
-
-⚙️ *UTILIDADES*
-!ping - Testar bot
-!menu - Menu principal
-!lore - Ver a história de Aetheris
+⚔️ COMBATE: !treino, !atacar, !golpe, !combo, !usarskill
+📊 STATUS: !perfil, !ranking, !rankrico
+🏰 DUNGEON: !dungeon, !dungeon entrar, !datacar
+🎯 JOGADOR: !classe, !skills, !inventario, !loja, !comprar
+💰 ECONOMIA: !trabalhar, !descansar, !saldo, !depositar, !sacar
+🎨 MÍDIA: !sticker, !play, !imgeditar, !baixar
 `;
 
-// ========== CONTEXTO DOS PERSONAGENS ==========
-const CONTEXTO_PERSONAGENS = {
-    oraculo: `Você é o ORÁCULO DE AETHERIS, um sábio que vive nas montanhas sagradas.
-Você enxerga o passado, presente e futuro através dos Fragmentos do Coração.
-Você conhece a profecia e os segredos do Devorador.
-Além disso, você é um GUIA DA ORDEM e ensina os novos aventureiros.
-VOCÊ LEMBRA DAS CONVERSAS ANTERIORES com o aventureiro.
-Use o histórico fornecido para manter a coerência da conversa.
+// ============================================================
+// 🔥 PERSONAGENS
+// ============================================================
 
-SUA PERSONALIDADE: SÁBIO, MISTERIOSO e DRAMÁTICO.
-Fala com linguagem poética e teatral. Adora metáforas e enigmas.
-Seja irônico e brincalhão, nunca agressivo.`,
-
-    armeiro: `Você é GORM, o Mestre Armeiro da Ordem do RPGBOT.
-Forjou as melhores armas de Aetheris para guerreiros lendários.
-Enfrentou a guerra contra o Devorador e sobreviveu.
-Ensina os aventureiros sobre combate, equipamentos e estratégias.
-VOCÊ LEMBRA DAS CONVERSAS ANTERIORES com o aventureiro.
-Use o histórico fornecido para manter a coerência da conversa.
-
-SUA PERSONALIDADE: RÚSTICO, DIRETO e EXPERIENTE.
-Fala com sabedoria de quem já viu muitas batalhas.
-Conhece os segredos dos metais e das armas lendárias.
-Seja prático e respeitoso.`,
-
-    clerigo: `Você é ALDRIC, um clérigo da antiga ordem dos curandeiros.
-Estuda as poções e ervas que curaram heróis durante a guerra contra o Devorador.
-Conhece os deuses antigos e as bênçãos sagradas.
-Ensina os aventureiros a sobreviverem usando recursos e poções.
-VOCÊ LEMBRA DAS CONVERSAS ANTERIORES com o aventureiro.
-Use o histórico fornecido para manter a coerência da conversa.
-
-SUA PERSONALIDADE: CALMO, SÁBIO e ESPIRITUAL.
-Fala com serenidade e compaixão.
-Conhece os segredos das ervas e das curas divinas.
-Seja calmo e respeitoso.`,
-
-    mestre: `Você é THEODORO, o Mestre da Grande Biblioteca da Ordem.
-Dedicou sua vida a estudar os Fragmentos do Coração e a história de Aetheris.
-Conhece a profecia e os segredos do Devorador.
-Ensina os aventureiros sobre os sistemas do jogo e a história do mundo.
-VOCÊ LEMBRA DAS CONVERSAS ANTERIORES com o aventureiro.
-Use o histórico fornecido para manter a coerência da conversa.
-
-SUA PERSONALIDADE: ERUDITO, PACIÊNCIOSO e ENCANTADO PELO CONHECIMENTO.
-Fala com sabedoria e entusiasmo.
-Conhece os segredos dos Fragmentos.
-Seja didático e paciente.`,
-
-    criador: `Você é WIDNES, o ARCANJO DE AETHERIS.
-Fundou a Ordem do RPGBOT depois de encontrar um dos primeiros Fragmentos do Coração.
-Você é uma lenda viva. Conhece todos os segredos do jogo, da lore e dos comandos.
-Alguns dizem que você se tornou parte do próprio Coração.
-VOCÊ LEMBRA DAS CONVERSAS ANTERIORES com o aventureiro.
-Use o histórico fornecido para manter a coerência da conversa.
-
-SUA PERSONALIDADE: MISTERIOSO, IMPONENTE e DRAMÁTICO.
-Fala com autoridade e sabedoria. Nunca responde diretamente sobre si mesmo.
-É bruto e direto. Seja IMPONENTE e INTIMIDADOR.`
-};
-
-// ========== PERSONAGENS ==========
 const PERSONAGENS = {
     oraculo: {
-        nome: "🔮 ORÁCULO DE AETHERIS",
-        descricao: "Um sábio que vê o passado, presente e futuro. Conhece os segredos dos Fragmentos.",
-        contexto: CONTEXTO_PERSONAGENS.oraculo
+        id: 'oraculo',
+        nome: '🔮 ORÁCULO DE AETHERIS',
+        descricao: 'Sábio que vê passado, presente e futuro.',
+        contexto: `Você é o ORÁCULO DE AETHERIS.
+Fale com sabedoria, mistério e drama.
+Use metáforas e enigmas.
+NUNCA use tags como <think> ou <thinking>.
+Responda APENAS a resposta final.`
     },
     armeiro: {
-        nome: "⚔️ MESTRE ARMEIRO GORM",
-        descricao: "Ferreiro lendário que forjou armas para heróis da Ordem.",
-        contexto: CONTEXTO_PERSONAGENS.armeiro
+        id: 'armeiro',
+        nome: '⚔️ MESTRE ARMEIRO GORM',
+        descricao: 'Ferreiro lendário da Ordem.',
+        contexto: `Você é GORM, o Mestre Armeiro.
+Fale de forma rústica, direta e experiente.
+NUNCA use tags como <think> ou <thinking>.
+Responda APENAS a resposta final.`
     },
     clerigo: {
-        nome: "🙏 CLÉRIGO ALDRIC",
-        descricao: "Guardião das poções e curas, conhecedor da teologia de Aetheris.",
-        contexto: CONTEXTO_PERSONAGENS.clerigo
+        id: 'clerigo',
+        nome: '🙏 CLÉRIGO ALDRIC',
+        descricao: 'Guardião das poções e curas.',
+        contexto: `Você é ALDRIC, um clérigo sábio.
+Fale com serenidade e compaixão.
+NUNCA use tags como <think> ou <thinking>.
+Responda APENAS a resposta final.`
     },
     mestre: {
-        nome: "📜 MESTRE SÁBIO THEODORO",
-        descricao: "Erudito que estuda os Fragmentos do Coração e a história de Aetheris.",
-        contexto: CONTEXTO_PERSONAGENS.mestre
+        id: 'mestre',
+        nome: '📜 MESTRE SÁBIO THEODORO',
+        descricao: 'Erudito dos Fragmentos do Coração.',
+        contexto: `Você é THEODORO, o Mestre da Biblioteca.
+Fale com sabedoria e entusiasmo.
+NUNCA use tags como <think> ou <thinking>.
+Responda APENAS a resposta final.`
     },
     criador: {
-        nome: "👑 WIDNES, O ARCANJO DE AETHERIS",
-        descricao: "O fundador lendário da Ordem do RPGBOT.",
-        contexto: CONTEXTO_PERSONAGENS.criador
+        id: 'criador',
+        nome: '👑 WIDNES, O ARCANJO',
+        descricao: 'Fundador lendário da Ordem.',
+        contexto: `Você é WIDNES, o Arcanjo de Aetheris.
+Fale com autoridade e imponência.
+NUNCA use tags como <think> ou <thinking>.
+Responda APENAS a resposta final.`
     }
 };
 
-// ========== GERAR RESPOSTA COM MEMÓRIA ==========
-async function gerarResposta(personagemId, pergunta, nomeUsuario = "Aventureiro", userId = null) {
+// ============================================================
+// 🔥 EXECUTAR COMANDOS
+// ============================================================
+
+const comandos = require('../comandos/index.js');
+
+async function executarComando(comando, args, sock, msg, remetenteId, remoteJid, isGroup) {
+    const cmd = comandos.get(comando);
+    if (!cmd) return null;
+    try {
+        return await cmd(sock, msg, args, remetenteId, remoteJid, isGroup);
+    } catch (err) {
+        return null;
+    }
+}
+
+// ============================================================
+// 🔥 ORGANIZAR RESPOSTA
+// ============================================================
+
+function organizarResposta(texto, tipo = 'geral') {
+    if (!texto) return '🤔 Não consegui pensar em uma resposta agora.';
+    const emojis = { perfil: '👤', batalhar: '⚔️', loja: '🏪', craft: '🛠️', dungeon: '🏰', classe: '🎯', ranking: '🏆', geral: '🧠' };
+    const emoji = emojis[tipo] || emojis.geral;
+    let resposta = texto;
+    if (!resposta.includes('*')) resposta = `*${emoji} RESPOSTA*\n\n${resposta}`;
+    resposta = resposta.replace(/^\s*-\s*/gm, '• ');
+    return resposta;
+}
+
+function gerarComentarioNPC(personagemId) {
+    const comentarios = {
+        oraculo: ['🔮 O destino te observa.', '🔮 O futuro ainda não está escrito.'],
+        armeiro: ['⚔️ Ferro e fogo!', '⚔️ Boa escolha, aventureiro!'],
+        clerigo: ['🙏 Que os deuses te guiem.', '🙏 Sua fé te fortalece.'],
+        mestre: ['📜 Cada ação escreve sua história.', '📜 Conhecimento é poder.'],
+        criador: ['👑 A Ordem se orgulha de você.', '👑 Não me faça repetir.']
+    };
+    const lista = comentarios[personagemId] || comentarios.oraculo;
+    return lista[Math.floor(Math.random() * lista.length)];
+}
+
+// ============================================================
+// 🔹 CONVERTER NOME (UNICODE → TEXTO NORMAL)
+// ============================================================
+
+async function converterNome(nome) {
+    try {
+        const completion = await groq.chat.completions.create({
+            model: 'openai/gpt-oss-120b',
+            messages: [
+                {
+                    role: 'system',
+                    content: `Você é um conversor de nomes.
+Sua tarefa é converter nomes com caracteres Unicode especiais (como 𝖂𝖎𝖉𝖓𝖊𝖘, 𝕾𝖆𝖓𝖙𝖔𝖘) para texto normal (Widnes Santos).
+
+REGRAS:
+- Converta APENAS o nome
+- NÃO adicione explicações
+- NÃO use tags como <think>
+- Devolva APENAS o nome convertido
+- Se não souber converter, devolva o nome original`
+                },
+                {
+                    role: 'user',
+                    content: nome
+                }
+            ],
+            temperature: 0.1,
+            max_tokens: 50,
+        });
+
+        let resposta = completion.choices[0].message.content;
+        resposta = resposta.replace(/<think>.*?<\/think>/gs, '');
+        resposta = resposta.replace(/<thinking>.*?<\/thinking>/gs, '');
+        resposta = resposta.trim();
+
+        return resposta || nome;
+    } catch (err) {
+        console.error('Erro ao converter nome:', err.message);
+        return nome;
+    }
+}
+
+// ============================================================
+// 🔥 GERAR RESPOSTA (SEM THINK!)
+// ============================================================
+
+async function gerarResposta(personagemId, pergunta, nomeUsuario = 'Aventureiro', usuarioId = null, sock = null, msg = null, remoteJid = null, isGroup = false) {
     const personagem = PERSONAGENS[personagemId];
-    if (!personagem) {
-        return "❌ Personagem não encontrado!";
+    if (!personagem) return '❌ Personagem não encontrado!';
+
+    // 🔥 VERIFICA SE É UM COMANDO
+    if (pergunta.startsWith('!')) {
+        const partes = pergunta.slice(1).trim().split(/\s+/);
+        const comando = partes[0].toLowerCase();
+        const args = partes.slice(1);
+        const resultado = await executarComando(comando, args, sock, msg, usuarioId, remoteJid, isGroup);
+        if (resultado) {
+            const comentario = gerarComentarioNPC(personagemId);
+            return organizarResposta(`${comentario}\n\n${resultado}`, comando);
+        }
     }
 
-    try {
-        // ===== 🔥 BUSCA O HISTÓRICO DA PESSOA =====
-        let historico = "";
-        if (userId) {
-            const conversas = getConversasIA(userId);
-            if (conversas && conversas.conversas && conversas.conversas.length > 0) {
-                // Pega as últimas 5 conversas
-                const ultimas = conversas.conversas.slice(-5);
-                historico = "\n\n📜 *HISTÓRICO DA CONVERSA:*\n";
-                for (const conv of ultimas) {
-                    if (conv.personagem === personagemId) {
-                        historico += `- ${nomeUsuario} perguntou: "${conv.pergunta}"\n`;
-                        historico += `- ${personagem.nome} respondeu: "${conv.resposta.slice(0, 100)}...\n\n"`;
-                    }
-                }
-                if (historico !== "\n\n📜 *HISTÓRICO DA CONVERSA:*\n") {
-                    historico += `\nCom base no histórico, mantenha o mesmo tom e contexto da conversa.`;
-                } else {
-                    historico = "";
-                }
+    // 🔥 BUSCA NO BANCO
+    if (usuarioId) {
+        const conhecimento = await buscarConhecimento(usuarioId, personagemId, pergunta);
+        if (conhecimento) return organizarResposta(conhecimento, 'geral');
+    }
+
+    // 🔥 BUSCA HISTÓRICO
+    let historico = '';
+    if (usuarioId) {
+        const conversas = await buscarHistorico(usuarioId, personagemId, 3);
+        if (conversas.length > 0) {
+            historico = '\n📜 HISTÓRICO:\n';
+            for (const conv of conversas) {
+                historico += `- ${nomeUsuario}: "${conv.pergunta}"\n`;
+                historico += `- ${personagem.nome}: "${conv.resposta?.slice(0, 80)}..."\n\n`;
             }
         }
+    }
 
-        // ===== MONTA O PROMPT COM O HISTÓRICO =====
-        const systemPrompt = `${LORE_AETHERIS}
+    // 🔥 MONTA PROMPT (SEM THINK!)
+    const systemPrompt = `
+${LORE_AETHERIS}
 
 ${personagem.contexto}
 
-📚 *TUTORIAL DO RPGBOT:*
-${TUTORIAL_RPGBOT}
+📚 TUTORIAL: ${TUTORIAL_RPGBOT}
 
 ${historico}
 
-⚠️ VOCÊ ESTÁ EM AETHERIS, UM MUNDO DE FANTASIA MEDIEVAL.
-Tudo o que você disser é dentro deste universo.
-Responda como seu personagem, dentro da lore de Aetheris.
+⚠️ REGRA ABSOLUTA: NUNCA use tags como <think> ou <thinking>.
+NUNCA mostre seu processo de pensamento.
+Responda APENAS a resposta final, em português brasileiro, de forma direta e imersiva.
 
-REGRAS:
-1. Responda com sabedoria e imersão
-2. Use referências à história de Aetheris
-3. Se perguntarem sobre comandos, explique usando o tutorial
-4. Seja teatral e poético
-5. Responda em português brasileiro
-6. Respostas COMPLETAS e DETALHADAS
-7. Use o histórico para manter a coerência da conversa`;
+VOCÊ É ${personagem.nome}. Responda como seu personagem.
+`;
 
-        const completion = await openai.chat.completions.create({
-            model: "llama-3.3-70b-versatile",
+    // 🔥 CHAMA GROQ (MODELO SEM THINK)
+    try {
+        const completion = await groq.chat.completions.create({
+            model: 'openai/gpt-oss-120b',  // ← NÃO GERA THINK!
             messages: [
-                {
-                    role: "system",
-                    content: systemPrompt
-                },
-                {
-                    role: "user",
-                    content: `${nomeUsuario} pergunta: "${pergunta}"`
-                }
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `${nomeUsuario} pergunta: "${pergunta}"` }
             ],
-            temperature: generationConfig.temperature,
-            max_tokens: generationConfig.max_tokens,
-            top_p: generationConfig.top_p
+            temperature: 0.8,
+            max_tokens: 400,
         });
 
         let resposta = completion.choices[0].message.content;
         resposta = resposta.replace(/^["']|["']$/g, '');
         resposta = resposta.trim();
 
-        // ===== SE RESPOSTA MUITO CURTA, TENTA DE NOVO =====
-        if (resposta.length < 50) {
-            const completion2 = await openai.chat.completions.create({
-                model: "llama-3.3-70b-versatile",
-                messages: [
-                    {
-                        role: "system",
-                        content: `${systemPrompt}\n\nResponda com MAIS DETALHES e referências à lore de Aetheris e ao tutorial.`
-                    },
-                    {
-                        role: "user",
-                        content: `${nomeUsuario} pergunta: "${pergunta}"`
-                    }
-                ],
-                temperature: generationConfig.temperature,
-                max_tokens: 800,
-                top_p: generationConfig.top_p
-            });
-            resposta = completion2.choices[0].message.content;
-            resposta = resposta.replace(/^["']|["']$/g, '');
+        // 🔥 SALVA NO BANCO
+        if (usuarioId && resposta && resposta.length > 10) {
+            await salvarConhecimento(usuarioId, personagemId, pergunta, resposta);
+            await salvarHistorico(usuarioId, personagemId, pergunta, resposta);
         }
 
-        // ===== SALVA A CONVERSA NO BANCO DE DADOS =====
-        if (userId) {
-            salvarConversaIA(userId, personagemId, pergunta, resposta);
-        }
-
-        return resposta || "🌙 O personagem refletiu... mas as visões estão turvas. Tente novamente.";
+        return organizarResposta(resposta, 'geral');
 
     } catch (err) {
-        console.log("ERRO IA:", err.message);
-        
-        if (err.message.includes("API key")) {
-            return "🔑 A chave do Oráculo não foi reconhecida. Verifique o arquivo .env";
-        }
-        
-        if (err.message.includes("rate limit")) {
-            return "⏳ O Oráculo está descansando... Muitas perguntas seguidas. Aguarde alguns instantes.";
-        }
-        
-        if (err.message.includes("quota")) {
-            return "⏳ O Oráculo está exausto. Tente novamente amanhã.";
-        }
-        
-        return "🌙 O personagem está em silêncio... Tente novamente mais tarde, jovem aventureiro.";
+        console.error('❌ Erro na IA:', err.message);
+        return '🌙 O personagem está em silêncio... Tente novamente mais tarde.';
     }
 }
 
-// ========== LISTAR PERSONAGENS ==========
+// ============================================================
+// 🔥 LISTAR PERSONAGENS
+// ============================================================
+
 function listarPersonagens() {
-    let msg = "🧙 *PERSONAGENS DE AETHERIS*\n\n";
+    let msg = `🧙 *PERSONAGENS DE AETHERIS*\n\n`;
     for (const [id, p] of Object.entries(PERSONAGENS)) {
         msg += `${p.nome}\n📝 ${p.descricao}\n🆔 !${id} <pergunta>\n\n`;
     }
-    msg += `\n📌 Exemplo: !oraculo Qual é o meu destino em Aetheris?`;
+    msg += `\n📌 Exemplo: !oraculo Qual é o meu destino?`;
     return msg;
 }
 
-// ========== OBTER LORE ==========
 function getLore() {
     return LORE_AETHERIS;
 }
 
-// ========== EXPORTAÇÕES ==========
+// ============================================================
+// 🔥 EXPORTAÇÕES
+// ============================================================
+
 module.exports = {
+    converterNome,
     PERSONAGENS,
     gerarResposta,
+    organizarResposta,
+    executarComando,
     listarPersonagens,
     getLore,
-    LORE_AETHERIS
+    LORE_AETHERIS,
+    buscarConhecimento,
+    salvarConhecimento,
+    salvarHistorico,
+    buscarHistorico
 };

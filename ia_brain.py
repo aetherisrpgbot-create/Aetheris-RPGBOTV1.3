@@ -1,4 +1,4 @@
-# ia_brain.py - CORRIGIDO
+# ia_brain.py - IA COMPLETA (SEM JOGADORES)
 import sys
 import json
 import re
@@ -6,164 +6,135 @@ import sqlite3
 import os
 import random
 import subprocess
+import urllib.request
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'database/ia_conhecimento.db')
 
-# 🔥 SUPRIME LOGS
+# 🔥 SUPRIME TODOS OS LOGS
 sys.stderr = open(os.devnull, 'w')
 
 # ============================================================
-# 🔥 LISTA DE MODELOS
-# ============================================================
-
-MODELOS_GROQ = [
-    'openai/gpt-oss-120b',
-    'qwen/qwen3.6-27b',
-    'groq/compound',
-    'openai/gpt-oss-20b',
-]
-
-# ============================================================
-# 🔥 BANCO DE DADOS (COM USUÁRIO)
+# 🔥 BANCO DE DADOS
 # ============================================================
 
 def conectar_banco():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    
+    # 🔹 TABELA IA CONHECIMENTO
     conn.execute('''
         CREATE TABLE IF NOT EXISTS ia_conhecimento (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id TEXT,
+            personagem TEXT,
             pergunta TEXT,
             resposta TEXT,
             usos INTEGER DEFAULT 1,
-            criado DATETIME DEFAULT CURRENT_TIMESTAMP
+            criado DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(usuario_id, personagem, pergunta)
         )
     ''')
+    
+    # 🔹 TABELA HISTÓRICO DE CONVERSAS
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS historico_conversas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id TEXT,
+            personagem TEXT,
+            pergunta TEXT,
+            resposta TEXT,
+            contexto TEXT,
+            data DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 🔹 TABELA CONTEXTO DO USUÁRIO
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS contexto_usuario (
+            usuario_id TEXT PRIMARY KEY,
+            nome TEXT,
+            classe TEXT,
+            nivel INTEGER,
+            ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     conn.commit()
     return conn
 
-def buscar_resposta(usuario_id, pergunta):
-    try:
-        conn = conectar_banco()
-        cursor = conn.execute(
-            'SELECT resposta FROM ia_conhecimento WHERE usuario_id = ? AND pergunta = ?',
-            (usuario_id, pergunta)
-        )
-        resultado = cursor.fetchone()
-        conn.close()
-        if resultado:
-            return resultado[0]
-    except Exception as e:
-        print(f"Erro no banco: {e}", file=sys.stderr)
-    return None
+# ============================================================
+# 🔥 FUNÇÕES DO BANCO
+# ============================================================
 
-def salvar_resposta(usuario_id, pergunta, resposta):
+def buscar_resposta(usuario_id, personagem, pergunta):
+    conn = conectar_banco()
+    cursor = conn.execute(
+        'SELECT resposta FROM ia_conhecimento WHERE usuario_id = ? AND personagem = ? AND pergunta = ?',
+        (usuario_id, personagem, pergunta)
+    )
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado[0] if resultado else None
+
+def salvar_resposta(usuario_id, personagem, pergunta, resposta):
+    conn = conectar_banco()
     try:
-        conn = conectar_banco()
         conn.execute(
-            'INSERT OR REPLACE INTO ia_conhecimento (usuario_id, pergunta, resposta) VALUES (?, ?, ?)',
-            (usuario_id, pergunta, resposta)
+            'INSERT OR REPLACE INTO ia_conhecimento (usuario_id, personagem, pergunta, resposta) VALUES (?, ?, ?, ?)',
+            (usuario_id, personagem, pergunta, resposta)
         )
         conn.commit()
-        conn.close()
     except Exception as e:
         print(f"Erro ao salvar: {e}", file=sys.stderr)
+    conn.close()
 
-# ============================================================
-# 🔥 RACIOCÍNIO CLÍNICO
-# ============================================================
+def salvar_historico(usuario_id, personagem, pergunta, resposta, contexto=''):
+    conn = conectar_banco()
+    try:
+        conn.execute(
+            'INSERT INTO historico_conversas (usuario_id, personagem, pergunta, resposta, contexto) VALUES (?, ?, ?, ?, ?)',
+            (usuario_id, personagem, pergunta, resposta, contexto)
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"Erro ao salvar histórico: {e}", file=sys.stderr)
+    conn.close()
 
-def analisar_pergunta(mensagem):
-    mensagem_limpa = mensagem.lower().strip()
-    
-    tipos = {
-        'receita': ['receita', 'como fazer', 'modo de preparo', 'ingredientes'],
-        'historia': ['história', 'quem foi', 'o que aconteceu'],
-        'ciencia': ['ciência', 'física', 'química', 'biologia'],
-        'tecnologia': ['tecnologia', 'programação', 'código'],
-        'rpg': ['rpg', 'classe', 'batalhar', 'dungeon'],
-        'musica': ['música', 'cantor', 'banda'],
-        'nome': ['meu nome', 'qual meu nome'],
-    }
-    
-    for tipo, palavras in tipos.items():
-        for palavra in palavras:
-            if palavra in mensagem_limpa:
-                return tipo
-    
-    return 'geral'
+def buscar_historico(usuario_id, personagem, limite=5):
+    conn = conectar_banco()
+    cursor = conn.execute(
+        'SELECT pergunta, resposta FROM historico_conversas WHERE usuario_id = ? AND personagem = ? ORDER BY data DESC LIMIT ?',
+        (usuario_id, personagem, limite)
+    )
+    resultados = cursor.fetchall()
+    conn.close()
+    return [{'pergunta': r[0], 'resposta': r[1]} for r in resultados]
 
-# ============================================================
-# 🔥 ORGANIZAR RESPOSTA
-# ============================================================
-
-def organizar_resposta(resposta, tipo):
-    if not resposta:
-        return resposta
-    
-    emojis = {
-        'receita': '🍳',
-        'historia': '📜',
-        'ciencia': '🔬',
-        'tecnologia': '💻',
-        'rpg': '🎮',
-        'musica': '🎵',
-        'nome': '👤',
-        'geral': '🧠'
-    }
-    
-    emoji = emojis.get(tipo, '🧠')
-    titulo = tipo.capitalize() if tipo != 'geral' else 'IA'
-    
-    return f'{emoji} *{titulo}:*\n\n{resposta}'
-
-# ============================================================
-# 🔥 CHAMAR GROQ
-# ============================================================
-
-def chamar_groq(pergunta):
-    for modelo in MODELOS_GROQ:
-        try:
-            pergunta_escapada = pergunta.replace('"', '\\"').replace("'", "\\'")
-            
-            node_script = f'''
-            const Groq = require('groq-sdk');
-            const groq = new Groq({{ apiKey: process.env.GROQ_API_KEY }});
-            groq.chat.completions.create({{
-                messages: [
-                    {{ role: 'system', content: 'Responda em português de forma direta, clara e completa.' }},
-                    {{ role: 'user', content: '{pergunta_escapada}' }}
-                ],
-                model: '{modelo}',
-                temperature: 0.7,
-                max_tokens: 600
-            }}).then(r => console.log(JSON.stringify({{ resposta: r.choices[0].message.content }})));
-            '''
-            
-            result = subprocess.run(
-                ['node', '-e', node_script],
-                capture_output=True,
-                text=True,
-                env={**os.environ, 'GROQ_API_KEY': os.environ.get('GROQ_API_KEY', '')},
-                timeout=30
-            )
-            
-            if result.returncode == 0:
-                data = json.loads(result.stdout)
-                resposta = data.get('resposta', '')
-                resposta = re.sub(r'<think>.*?</think>', '', resposta, flags=re.DOTALL)
-                resposta = re.sub(r'<thinking>.*?</thinking>', '', resposta, flags=re.DOTALL)
-                resposta = re.sub(r'\s+', ' ', resposta).strip()
-                
-                if resposta and len(resposta) > 10:
-                    return resposta
-        except:
-            continue
-    
+def buscar_contexto(usuario_id):
+    conn = conectar_banco()
+    cursor = conn.execute(
+        'SELECT * FROM contexto_usuario WHERE usuario_id = ?',
+        (usuario_id,)
+    )
+    resultado = cursor.fetchone()
+    conn.close()
+    if resultado:
+        return {'nome': resultado[1], 'classe': resultado[2], 'nivel': resultado[3]}
     return None
+
+def salvar_contexto(usuario_id, nome, classe, nivel):
+    conn = conectar_banco()
+    try:
+        conn.execute(
+            'INSERT OR REPLACE INTO contexto_usuario (usuario_id, nome, classe, nivel) VALUES (?, ?, ?, ?)',
+            (usuario_id, nome, classe, nivel)
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"Erro ao salvar contexto: {e}", file=sys.stderr)
+    conn.close()
 
 # ============================================================
 # 🔥 RESPOSTAS FIXAS
@@ -180,77 +151,142 @@ RESPOSTAS_FIXAS = {
     'valeu': 'Valeu! 👍',
 }
 
+RESPOSTAS_ALEATORIAS = [
+    '🤔 Boa pergunta! Deixa eu pensar...',
+    '😄 Que legal! Me fala mais!',
+    '🧐 Interessante! Nunca pensei nisso.',
+    '📚 Posso aprender sobre isso!',
+    '🤖 Sou um bot, mas estou sempre aprendendo!',
+]
+
+# ============================================================
+# 🔥 CHAMAR GROQ (VIA NODE)
+# ============================================================
+
+def chamar_groq(pergunta):
+    try:
+        pergunta_escapada = pergunta.replace('"', '\\"').replace("'", "\\'")
+        
+        node_script = f'''
+        const Groq = require('groq-sdk');
+        const groq = new Groq({{ apiKey: process.env.GROQ_API_KEY }});
+        groq.chat.completions.create({{
+            messages: [
+                {{ role: 'system', content: 'Responda em português de forma direta e clara.' }},
+                {{ role: 'user', content: '{pergunta_escapada}' }}
+            ],
+            model: 'openai/gpt-oss-120b',
+            temperature: 0.7,
+            max_tokens: 300
+        }}).then(r => console.log(JSON.stringify({{ resposta: r.choices[0].message.content }})));
+        '''
+        
+        result = subprocess.run(
+            ['node', '-e', node_script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, 'GROQ_API_KEY': os.environ.get('GROQ_API_KEY', '')}
+        )
+        
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            resposta = data.get('resposta', '')
+            resposta = re.sub(r'<think>.*?</think>', '', resposta, flags=re.DOTALL)
+            resposta = re.sub(r'<thinking>.*?</thinking>', '', resposta, flags=re.DOTALL)
+            resposta = re.sub(r'\s+', ' ', resposta).strip()
+            return resposta
+        return None
+    except Exception:
+        return None
+
 # ============================================================
 # 🔥 FUNÇÃO PRINCIPAL
 # ============================================================
 
-def responder(usuario_id, mensagem):
+def responder(usuario_id, mensagem, personagem='geral'):
     mensagem_limpa = mensagem.lower().strip()
     
-    # 1. SAUDAÇÕES
+    # 1. Respostas fixas
     for palavra, resposta in RESPOSTAS_FIXAS.items():
         if palavra in mensagem_limpa:
             return resposta
     
-    # 2. PERGUNTA SOBRE NOME (usa o ID como fallback)
-    if 'meu nome' in mensagem_limpa or 'qual meu nome' in mensagem_limpa:
-        nome = usuario_id.split('@')[0] if '@' in usuario_id else usuario_id
-        return f'👤 Seu nome é: *{nome}*\n\n(É o que eu tenho registrado como seu identificador)'
-    
-    # 3. BANCO DE DADOS
-    resposta = buscar_resposta(usuario_id, mensagem_limpa)
+    # 2. Buscar no banco
+    resposta = buscar_resposta(usuario_id, personagem, mensagem_limpa)
     if resposta:
         return resposta
     
-    # 4. ANALISAR PERGUNTA
-    tipo = analisar_pergunta(mensagem)
-    
-    # 5. CHAMAR GROQ
-    resposta = chamar_groq(mensagem)
-    if resposta:
-        salvar_resposta(usuario_id, mensagem_limpa, resposta)
-        return organizar_resposta(resposta, tipo)
-    
-    # 6. FALLBACK
-    return '🤔 Não sei responder isso ainda, mas vou aprender!'
+    # 3. Fallback
+    return random.choice(RESPOSTAS_ALEATORIAS)
 
 # ============================================================
 # 🔥 MAIN
 # ============================================================
 
 if __name__ == '__main__':
-    try:
-        if len(sys.argv) < 3:
-            print(json.dumps({'erro': 'Argumentos insuficientes'}))
-            sys.exit(1)
-        
-        modo = sys.argv[1]
+    if len(sys.argv) < 2:
+        print(json.dumps({'erro': 'Modo não especificado'}))
+        sys.exit(1)
+    
+    modo = sys.argv[1]
+    
+    # 🔹 BUSCAR CONHECIMENTO
+    if modo == 'buscar' and len(sys.argv) >= 5:
         usuario_id = sys.argv[2]
-        
-        if modo == 'responder':
-            entrada = sys.argv[3] if len(sys.argv) > 3 else ''
-            resultado = responder(usuario_id, entrada)
-            print(json.dumps({'resposta': resultado}))
-        
-        elif modo == 'aprender' and len(sys.argv) >= 5:
-            pergunta = sys.argv[3]
-            resposta = sys.argv[4]
-            salvar_resposta(usuario_id, pergunta, resposta)
-            print(json.dumps({'status': 'ok'}))
-        
-        elif modo == 'esquecer' and len(sys.argv) >= 4:
-            pergunta = sys.argv[3].lower().strip()
-            conn = conectar_banco()
-            conn.execute(
-                'DELETE FROM ia_conhecimento WHERE usuario_id = ? AND pergunta = ?',
-                (usuario_id, pergunta)
-            )
-            conn.commit()
-            conn.close()
-            print(json.dumps({'status': 'ok'}))
-        
-        else:
-            print(json.dumps({'erro': 'Modo inválido'}))
-            
-    except Exception as e:
-        print(json.dumps({'erro': str(e)}), file=sys.stdout)
+        personagem = sys.argv[3]
+        pergunta = sys.argv[4]
+        resposta = buscar_resposta(usuario_id, personagem, pergunta)
+        print(json.dumps({'resposta': resposta}))
+    
+    # 🔹 SALVAR CONHECIMENTO
+    elif modo == 'salvar' and len(sys.argv) >= 6:
+        usuario_id = sys.argv[2]
+        personagem = sys.argv[3]
+        pergunta = sys.argv[4]
+        resposta = sys.argv[5]
+        salvar_resposta(usuario_id, personagem, pergunta, resposta)
+        print(json.dumps({'status': 'ok'}))
+    
+    # 🔹 SALVAR HISTÓRICO
+    elif modo == 'historico' and len(sys.argv) >= 6:
+        usuario_id = sys.argv[2]
+        personagem = sys.argv[3]
+        pergunta = sys.argv[4]
+        resposta = sys.argv[5]
+        contexto = sys.argv[6] if len(sys.argv) > 6 else ''
+        salvar_historico(usuario_id, personagem, pergunta, resposta, contexto)
+        print(json.dumps({'status': 'ok'}))
+    
+    # 🔹 BUSCAR HISTÓRICO
+    elif modo == 'historico_buscar' and len(sys.argv) >= 4:
+        usuario_id = sys.argv[2]
+        personagem = sys.argv[3]
+        limite = int(sys.argv[4]) if len(sys.argv) > 4 else 5
+        historico = buscar_historico(usuario_id, personagem, limite)
+        print(json.dumps({'historico': historico}))
+    
+    # 🔹 BUSCAR CONTEXTO
+    elif modo == 'contexto' and len(sys.argv) >= 3:
+        usuario_id = sys.argv[2]
+        contexto = buscar_contexto(usuario_id)
+        print(json.dumps({'contexto': contexto}))
+    
+    # 🔹 SALVAR CONTEXTO
+    elif modo == 'contexto_salvar' and len(sys.argv) >= 6:
+        usuario_id = sys.argv[2]
+        nome = sys.argv[3]
+        classe = sys.argv[4]
+        nivel = int(sys.argv[5])
+        salvar_contexto(usuario_id, nome, classe, nivel)
+        print(json.dumps({'status': 'ok'}))
+    
+    # 🔹 RESPONDER
+    elif modo == 'responder' and len(sys.argv) >= 4:
+        usuario_id = sys.argv[2]
+        pergunta = sys.argv[3]
+        personagem = sys.argv[4] if len(sys.argv) > 4 else 'geral'
+        resultado = responder(usuario_id, pergunta, personagem)
+        print(json.dumps({'resposta': resultado}))
+    
+    else:
+        print(json.dumps({'erro': 'Modo ou argumentos inválidos'}))

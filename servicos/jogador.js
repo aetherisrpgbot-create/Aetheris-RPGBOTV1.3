@@ -1,234 +1,401 @@
-// ============================================================
-// SISTEMA DE JOGADOR - JSON PURA (FUNCIONAL)
-// ============================================================
-const { lerJogadores, escreverJogadores } = require("./banco");
+// servicos/jogador.js - CLIENTE COMPLETO PARA O BANCO DO JOGADOR
+const { exec } = require('child_process');
+const path = require('path');
 
-const CLASSES = {
-    guerreiro: {
-        dinheiro: 1.0,
-        xp: 1.0,
-        hp: 120,
-        mana: 60,
-        defesa: 8,
-        skills: [
-            { id: "golpe_forte", nome: "⚔️ Golpe Forte", dano: 15, custo_mana: 10, cooldown: 3, nivel: 1 },
-            { id: "corte_duplo", nome: "🩸 Corte Duplo", dano: 25, custo_mana: 20, cooldown: 5, nivel: 5 },
-            { id: "furia_guerreira", nome: "🔥 Fúria Guerreira", dano: 40, custo_mana: 35, cooldown: 8, nivel: 10 },
-            { id: "impacto_terra", nome: "🌍 Impacto da Terra", dano: 60, custo_mana: 50, cooldown: 12, nivel: 15 }
-        ]
-    },
-    mago: {
-        dinheiro: 0.8,
-        xp: 1.8,
-        hp: 80,
-        mana: 150,
-        defesa: 3,
-        skills: [
-            { id: "bola_fogo", nome: "🔥 Bola de Fogo", dano: 18, custo_mana: 15, cooldown: 3, nivel: 1 },
-            { id: "raio_arcano", nome: "⚡ Raio Arcano", dano: 30, custo_mana: 25, cooldown: 5, nivel: 5 },
-            { id: "explosao_mana", nome: "💥 Explosão de Mana", dano: 55, custo_mana: 45, cooldown: 9, nivel: 10 },
-            { id: "meteoro_arcano", nome: "☄️ Meteoro Arcano", dano: 80, custo_mana: 80, cooldown: 12, nivel: 15 }
-        ]
-    },
-    arqueiro: {
-        dinheiro: 1.1,
-        xp: 1.2,
-        hp: 100,
-        mana: 90,
-        defesa: 5,
-        skills: [
-            { id: "tiro_preciso", nome: "🏹 Tiro Preciso", dano: 20, custo_mana: 10, cooldown: 3, nivel: 1 },
-            { id: "chuva_flechas", nome: "🌧️ Chuva de Flechas", dano: 35, custo_mana: 25, cooldown: 6, nivel: 5 },
-            { id: "flecha_perfurante", nome: "🎯 Flecha Perfurante", dano: 50, custo_mana: 40, cooldown: 9, nivel: 10 },
-            { id: "disparo_fatal", nome: "💀 Disparo Fatal", dano: 75, custo_mana: 60, cooldown: 12, nivel: 15 }
-        ]
-    },
-    assassino: {
-        dinheiro: 1.5,
-        xp: 0.9,
-        hp: 85,
-        mana: 100,
-        defesa: 4,
-        skills: [
-            { id: "golpe_sombra", nome: "🌑 Golpe da Sombra", dano: 22, custo_mana: 15, cooldown: 3, nivel: 1 },
-            { id: "ataque_furtivo", nome: "🗡️ Ataque Furtivo", dano: 40, custo_mana: 25, cooldown: 5, nivel: 5 },
-            { id: "danca_mortal", nome: "💀 Dança Mortal", dano: 65, custo_mana: 45, cooldown: 9, nivel: 10 },
-            { id: "execucao_silenciosa", nome: "🖤 Execução Silenciosa", dano: 90, custo_mana: 70, cooldown: 14, nivel: 15 }
-        ]
-    }
-};
+const SCRIPT_PATH = path.join(__dirname, '../core/rpg_db.py');
 
-function criarJogadorPadrao(nome) {
-    return {
-        nome: nome || "Jogador",
-        xp: 0,
-        nivel: 1,
-        stamina: 100,
-        maxStamina: 100,
-        fatigue: 0,
-        saldo: 100,
-        banco: 0,
-        restEnd: 0,
-        cooldowns: {},
-        classe: "Sem Classe",
-        perguntasHoje: 0,
-        ultimoResetPerguntas: Date.now(),
-        segurancaAte: 0,
-        ultimoXP: 0,
-        vidaMax: 100,
-        vida: 100,
-        mana: 100,
-        manaMax: 100,
-        poder: 10,
-        defesa: 5,
-        critico: 5,
-        esquiva: 3,
-        inventario: {},
-        arma: null,
-        armadura: null,
-        acessorio: null,
-        trabalhosSeguidos: 0,
-        ultimoTrabalho: 0
-    };
+// ============================================================
+// 🔥 EXECUTAR PYTHON
+// ============================================================
+
+function executarPython(modo, ...args) {
+    return new Promise((resolve, reject) => {
+        const argsEscapados = args.map(a => `"${String(a).replace(/"/g, '\\"')}"`).join(' ');
+        const cmd = `python3 "${SCRIPT_PATH}" ${modo} ${argsEscapados}`;
+        
+        console.log(`🐍 [PYTHON] ${cmd}`);
+        
+        exec(cmd, { maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+            if (stderr) {
+                console.log('⚠️ [PYTHON STDERR]', stderr.trim());
+            }
+            if (err) {
+                reject(err);
+                return;
+            }
+            try {
+                const data = JSON.parse(stdout);
+                resolve(data);
+            } catch (e) {
+                reject(new Error(`Erro ao parsear JSON: ${stdout}`));
+            }
+        });
+    });
 }
 
 // ============================================================
-// FUNÇÕES SÍNCRONAS (JSON)
+// 🔥 CLASSE JOGADOR
 // ============================================================
 
-function getJogador(userId, nome) {
-    const dados = lerJogadores();
-    let jogador = dados[userId];
-    if (!jogador) {
-        jogador = criarJogadorPadrao(nome);
-        dados[userId] = jogador;
-        escreverJogadores(dados);
+class Jogador {
+    constructor(id) {
+        this.id = id;
+        this.dados = null;
+        this.inventario = [];
+        this.equipamentos = {};
+        this.mochila = { nivel: 1, slots: 10 };
     }
-    
-    // Proteção
-    jogador.nome ??= nome;
-    jogador.xp ??= 0;
-    jogador.nivel ??= 1;
-    jogador.stamina ??= 100;
-    jogador.maxStamina ??= 100;
-    jogador.fatigue ??= 0;
-    jogador.saldo ??= 100;
-    jogador.banco ??= 0;
-    jogador.classe ??= "Sem Classe";
-    jogador.vidaMax ??= 100;
-    jogador.vida ??= jogador.vidaMax;
-    jogador.manaMax ??= 100;
-    jogador.mana ??= jogador.manaMax;
-    jogador.poder ??= 10;
-    jogador.defesa ??= 5;
-    jogador.critico ??= 5;
-    jogador.esquiva ??= 3;
-    jogador.inventario ??= {};
-    jogador.cooldowns ??= {};
-    
-    if (Array.isArray(jogador.inventario)) {
-        const novo = {};
-        for (const item of jogador.inventario) {
-            novo[item] = (novo[item] || 0) + 1;
+
+    // ============================================================
+    // 🔹 CARREGAR JOGADOR
+    // ============================================================
+    async carregar() {
+        const result = await executarPython('jogador_carregar', this.id);
+        if (result.erro) throw new Error(result.erro);
+        this.dados = result.jogador;
+        this.inventario = result.inventario || [];
+        this.equipamentos = result.equipamentos || {};
+        this.mochila = result.mochila || { nivel: 1, slots: 10 };
+        return this;
+    }
+
+    // ============================================================
+    // 🔹 CRIAR JOGADOR
+    // ============================================================
+    async criar(nome) {
+        const result = await executarPython('jogador_criar', this.id, nome);
+        if (result.erro) throw new Error(result.erro);
+        return this;
+    }
+
+    // ============================================================
+    // 🔹 SALVAR JOGADOR
+    // ============================================================
+    async salvar() {
+        const result = await executarPython('jogador_salvar', this.id, JSON.stringify(this.dados));
+        if (result.erro) throw new Error(result.erro);
+        return this;
+    }
+
+    // ============================================================
+    // 🔹 ADICIONAR XP
+    // ============================================================
+    async adicionarXp(quantidade) {
+        const result = await executarPython('jogador_xp', this.id, quantidade);
+        if (result.erro) throw new Error(result.erro);
+        this.dados = result.jogador;
+        return { novoNivel: result.novoNivel, upou: result.upou };
+    }
+
+    // ============================================================
+    // 🔹 ADICIONAR OURO
+    // ============================================================
+    async adicionarOuro(quantidade) {
+        const result = await executarPython('jogador_ouro', this.id, quantidade);
+        if (result.erro) throw new Error(result.erro);
+        this.dados.ouro = result.ouro;
+        return result.ouro;
+    }
+
+    // ============================================================
+    // 🔹 GASTAR OURO
+    // ============================================================
+    async gastarOuro(quantidade) {
+        const result = await executarPython('jogador_ouro_gastar', this.id, quantidade);
+        if (result.erro) throw new Error(result.erro);
+        if (!result.success) return false;
+        this.dados.ouro = result.ouro;
+        return true;
+    }
+
+    // ============================================================
+    // 🔹 ADICIONAR ITEM (COM VERIFICAÇÃO DE ESPAÇO)
+    // ============================================================
+    async adicionarItem(itemId, quantidade = 1) {
+        // 🔥 VERIFICA ESPAÇO NA MOCHILA
+        const pode = await this.temEspacoParaItem(itemId);
+        if (!pode.ok) {
+            throw new Error(pode.message);
         }
-        jogador.inventario = novo;
+        
+        const result = await executarPython('jogador_item_adicionar', this.id, itemId, quantidade);
+        if (result.erro) throw new Error(result.erro);
+        this.inventario = result.inventario;
+        return this;
     }
 
-    if (jogador.restEnd && Date.now() >= jogador.restEnd) {
-        jogador.stamina = jogador.maxStamina;
-        jogador.fatigue = 0;
-        jogador.restEnd = 0;
-        jogador.vida = jogador.vidaMax;
-        dados[userId] = jogador;
-        escreverJogadores(dados);
+    // ============================================================
+    // 🔹 REMOVER ITEM
+    // ============================================================
+    async removerItem(itemId, quantidade = 1) {
+        const result = await executarPython('jogador_item_remover', this.id, itemId, quantidade);
+        if (result.erro) throw new Error(result.erro);
+        this.inventario = result.inventario;
+        return this;
     }
 
-    atualizarAtributos(jogador);
-    return jogador;
-}
-
-function adicionarXP(userId, nome, quantidade = 10) {
-    const dados = lerJogadores();
-    let jogador = dados[userId];
-    if (!jogador) {
-        jogador = criarJogadorPadrao(nome);
-        dados[userId] = jogador;
+    // ============================================================
+    // 🔹 EQUIPAR ITEM
+    // ============================================================
+    async equipar(itemId, slot) {
+        const result = await executarPython('jogador_equipar', this.id, itemId, slot);
+        if (result.erro) throw new Error(result.erro);
+        this.equipamentos = result.equipamentos;
+        this.inventario = result.inventario;
+        return result;
     }
 
-    jogador.xp += quantidade;
-
-    let subiu = false;
-    let niveisGanhos = 0;
-
-    while (jogador.xp >= jogador.nivel * 100) {
-        jogador.xp -= jogador.nivel * 100;
-        jogador.nivel++;
-        niveisGanhos++;
-        subiu = true;
-        atualizarAtributos(jogador);
+    // ============================================================
+    // 🔹 DESEQUIPAR ITEM
+    // ============================================================
+    async desequipar(slot) {
+        const result = await executarPython('jogador_desequipar', this.id, slot);
+        if (result.erro) throw new Error(result.erro);
+        this.equipamentos = result.equipamentos;
+        this.inventario = result.inventario;
+        return result;
     }
 
-    dados[userId] = jogador;
-    escreverJogadores(dados);
-
-    return {
-        subiu,
-        niveisGanhos,
-        nivel: jogador.nivel,
-        xp: jogador.xp
-    };
-}
-
-function atualizarSaldo(userId, delta, tipo = 'saldo') {
-    const dados = lerJogadores();
-    if (!dados[userId]) return false;
-    if (tipo === 'saldo') dados[userId].saldo += delta;
-    else if (tipo === 'banco') dados[userId].banco += delta;
-    if (dados[userId].saldo < 0) dados[userId].saldo = 0;
-    if (dados[userId].banco < 0) dados[userId].banco = 0;
-    escreverJogadores(dados);
-    return true;
-}
-
-function atualizarAtributos(jogador) {
-    if (!jogador.nivel || jogador.nivel < 1) jogador.nivel = 1;
-    
-    jogador.vidaMax = 100 + (jogador.nivel * 5);
-    jogador.poder = 10 + (jogador.nivel * 2);
-    jogador.defesa = 5 + Math.floor(jogador.nivel * 0.8);
-    jogador.critico = 5 + Math.floor(jogador.nivel / 10);
-    jogador.esquiva = 3 + Math.floor(jogador.nivel / 15);
-    jogador.maxStamina = 100 + (jogador.nivel * 5);
-    jogador.manaMax = 100 + (jogador.nivel * 3);
-
-    const classe = jogador.classe?.toLowerCase();
-    if (CLASSES && CLASSES[classe]) {
-        const classeData = CLASSES[classe];
-        jogador.vidaMax += (classeData.hp || 0) - 100;
-        jogador.manaMax += (classeData.mana || 0) - 100;
-        jogador.defesa += (classeData.defesa || 0) - 5;
+    // ============================================================
+    // 🔹 UPGRADE MOCHILA
+    // ============================================================
+    async upgradeMochila() {
+        const result = await executarPython('jogador_mochila_upgrade', this.id);
+        if (result.erro) throw new Error(result.erro);
+        this.mochila = result.mochila;
+        this.dados.ouro = result.ouro;
+        return result;
     }
 
-    jogador.vida = Math.min(jogador.vida || jogador.vidaMax, jogador.vidaMax);
-    jogador.mana = Math.min(jogador.mana || jogador.manaMax, jogador.manaMax);
-    
-    if (jogador.vida < 0) jogador.vida = 0;
-    if (jogador.mana < 0) jogador.mana = 0;
-    if (jogador.stamina < 0) jogador.stamina = 0;
+    // ============================================================
+    // 🔹 DESCANSAR
+    // ============================================================
+    async descansar() {
+        const result = await executarPython('jogador_descansar', this.id);
+        if (result.erro) throw new Error(result.erro);
+        this.dados.vida = result.vida;
+        this.dados.mana = result.mana;
+        this.dados.stamina = result.stamina;
+        return this;
+    }
+
+    // ============================================================
+    // 🔹 ATRIBUTOS TOTAIS
+    // ============================================================
+    async atributosTotais() {
+        const result = await executarPython('jogador_atributos', this.id);
+        if (result.erro) throw new Error(result.erro);
+        return result.atributos;
+    }
+
+    // ============================================================
+    // 🔹 VERIFICAR ESPAÇO NA MOCHILA
+    // ============================================================
+    async verificarEspaco() {
+        const result = await executarPython('jogador_espaco_mochila', this.id);
+        if (result.erro) throw new Error(result.erro);
+        return result;
+    }
+
+    // ============================================================
+    // 🔹 VERIFICAR SE TEM ESPAÇO PARA UM ITEM
+    // ============================================================
+    async temEspacoParaItem(itemId) {
+        const espaco = await this.verificarEspaco();
+        
+        // Se tem slot disponível, pode adicionar
+        if (espaco.disponivel > 0) {
+            return { ok: true, disponivel: espaco.disponivel };
+        }
+        
+        // Verifica se já tem o item no inventário (pode stackar até 32)
+        const itemExistente = this.inventario.find(i => i.item_id === itemId);
+        if (itemExistente && itemExistente.quantidade < 32) {
+            return { ok: true, disponivel: 0, stack: true };
+        }
+        
+        return { 
+            ok: false, 
+            message: `🎒 Mochila cheia! (${espaco.usados}/${espaco.slots} slots usados)\n📌 Use !upgrademochila para aumentar.` 
+        };
+    }
+
+    // ============================================================
+    // 🔹 PERFIL (FORMATADO)
+    // ============================================================
+    async perfil() {
+        const d = this.dados;
+        if (!d) throw new Error('Jogador não carregado');
+        
+        const espaco = await this.verificarEspaco();
+        
+        return `
+╭━━━ 🎮 *${d.nome}* ━━━╮
+🏷️ Classe: ${d.classe}
+🎯 Nível: ${d.nivel}
+⭐ XP: ${d.xp}/${d.xp_proximo}
+📦 Inv: ${espaco.usados}/${espaco.slots} slots
+
+❤️ Vida: ${d.vida}/${d.vida_max}
+💧 Mana: ${d.mana}/${d.mana_max}
+⚡ Stamina: ${d.stamina}/${d.stamina_max}
+
+🗡️ Poder: ${d.poder}
+🛡️ Defesa: ${d.defesa}
+💀 Crítico: ${d.critico}%
+💨 Esquiva: ${d.esquiva}%
+
+💰 Ouro: ${d.ouro}
+🏦 Banco: ${d.banco}
+🌍 Bioma: ${d.bioma || 'Floresta'}
+━━━━━━━━━━━━━━━━━━━━━
+`;
+    }
+
+    // ============================================================
+    // 🔹 EQUIPAMENTOS FORMATADOS
+    // ============================================================
+    async equipamentosFormatados() {
+        const result = await executarPython('jogador_equipamentos_formatados', this.id);
+        if (result.erro) throw new Error(result.erro);
+        return result.texto;
+    }
+
+    // ============================================================
+    // 🔹 INVENTÁRIO FORMATADO
+    // ============================================================
+    async inventarioFormatado() {
+        const result = await executarPython('jogador_inventario_formatado', this.id);
+        if (result.erro) throw new Error(result.erro);
+        return result.texto;
+    }
+
+    // ============================================================
+    // 🔹 MOCHILA FORMATADA
+    // ============================================================
+    async mochilaFormatada() {
+        const result = await executarPython('jogador_mochila_formatada', this.id);
+        if (result.erro) throw new Error(result.erro);
+        return result.texto;
+    }
+
+    // ============================================================
+    // 🔹 HISTÓRICO DE AÇÕES
+    // ============================================================
+    async historico(limite = 10) {
+        const result = await executarPython('jogador_historico', this.id, limite);
+        if (result.erro) throw new Error(result.erro);
+        return result.historico || [];
+    }
+
+    // ============================================================
+    // 🔹 REGISTRAR AÇÃO
+    // ============================================================
+    async registrarAcao(acao, detalhes = '') {
+        const result = await executarPython('jogador_acao', this.id, acao, detalhes);
+        if (result.erro) throw new Error(result.erro);
+        return this;
+    }
+
+// ============================================================
+// 🔹 CONQUISTAS
+// ============================================================
+
+async desbloquearConquista(conquistaId) {
+    const result = await executarPython('jogador_conquista_desbloquear', this.id, conquistaId);
+    if (result.erro) throw new Error(result.erro);
+    return result;
 }
 
-function getRankingXP() {
-    const dados = lerJogadores();
-    return Object.entries(dados)
-        .map(([id, val]) => ({ id, ...val }))
-        .sort((a, b) => (b.nivel - a.nivel) || (b.xp - a.xp));
+async verificarConquista(conquistaId) {
+    try {
+        console.log(`🔍 Verificando conquista: ${conquistaId} para ${this.id}`);
+        const result = await executarPython('jogador_conquista_verificar', this.id, conquistaId);
+        console.log(`📊 Resultado da verificação:`, result);
+        if (result.erro) {
+            console.error('Erro no Python:', result.erro);
+            return false;
+        }
+        // 🔥 GARANTE QUE RETORNA BOOLEANO
+        return result.desbloqueada === true || result.desbloqueada === 1;
+    } catch (err) {
+        console.error('Erro ao verificar conquista:', err);
+        return false;
+    }
 }
+
+async listarConquistas() {
+    const result = await executarPython('jogador_conquistas_listar', this.id);
+    if (result.erro) throw new Error(result.erro);
+    return result.conquistas || [];
+}
+
+// ============================================================
+// 🔹 MISSÕES
+// ============================================================
+
+async aceitarMissao(missaoId) {
+    const result = await executarPython('jogador_missao_aceitar', this.id, missaoId);
+    if (result.erro) throw new Error(result.erro);
+    return result;
+}
+
+async getProgressoMissao(missaoId) {
+    const result = await executarPython('jogador_missao_progresso', this.id, missaoId);
+    if (result.erro) throw new Error(result.erro);
+    return result;
+}
+
+async atualizarProgressoMissao(missaoId, progresso) {
+    const result = await executarPython('jogador_missao_progresso_atualizar', this.id, missaoId, progresso);
+    if (result.erro) throw new Error(result.erro);
+    return result;
+}
+
+async concluirMissao(missaoId) {
+    const result = await executarPython('jogador_missao_concluir', this.id, missaoId);
+    if (result.erro) throw new Error(result.erro);
+    return result;
+}
+
+async listarMissoes() {
+    const result = await executarPython('jogador_missoes_listar', this.id);
+    if (result.erro) throw new Error(result.erro);
+    return result.missoes || [];
+}
+
+
+    // ============================================================
+    // 🔹 STATUS RÁPIDO
+    // ============================================================
+    async status() {
+        const d = this.dados;
+        if (!d) throw new Error('Jogador não carregado');
+        return {
+            nome: d.nome,
+            nivel: d.nivel,
+            vida: `${d.vida}/${d.vida_max}`,
+            mana: `${d.mana}/${d.mana_max}`,
+            stamina: `${d.stamina}/${d.stamina_max}`,
+            ouro: d.ouro,
+            classe: d.classe,
+            vivo: d.vida > 0
+        };
+    }
+
+    // ============================================================
+    // 🔹 VIDA
+    // ============================================================
+    get vivo() {
+        return this.dados?.vida > 0;
+    }
+}
+
+// ============================================================
+// 🔥 EXPORTAÇÕES
+// ============================================================
 
 module.exports = {
-    CLASSES,
-    getJogador,
-    adicionarXP,
-    getRankingXP,
-    atualizarSaldo,
-    atualizarAtributos
+    Jogador,
+    executarPython
 };
